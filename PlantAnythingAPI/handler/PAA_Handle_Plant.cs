@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
+using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
@@ -55,54 +56,68 @@ namespace PlantAnythingAPI.handler
                         }
                     }
                     plantAs = API.World.GetBlock(new AssetLocation(properties["plantAs"].ToString()));
-                    PAA_Function_General.Log_Debug("found Behavior_Plantable on item; plantOn: list[{0}], plantAs: {1}", loggers: [plantOn?.Count ?? 0, plantAs?.Code.GetNameWithDomain() ?? "null"]);
+                    PAA_Function_General.Log_Debug_Verbose("found Behavior_Plantable on item; plantOn: list[{0}], plantAs: {1}", loggers: [plantOn?.Count ?? 0, plantAs?.Code.GetNameWithDomain() ?? "null"]);
                 }
                 base.Initialize(properties);
             }
 
             public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handHandling, ref EnumHandling handling)
             {
-                if (plantAs is null) { return; }
+                if (plantAs is null || blockSel is null || slot is null) { return; }
                 if (byEntity is EntityPlayer && (byEntity.Controls.Sneak || byEntity.Controls.Sprint)) { return; } //bypass interaction when crouching to allow other ineraction systems
-                PAA_Function_General.Log_Debug_Verbose("ran with item: {0} on selected block: {1}", loggers: [slot.Itemstack?.GetName() ?? "empty", blockSel.Block.Code.Path.ToString() ?? "null"]);
+                PAA_Function_General.Log_Debug_Verbose("ran with item: {0} on selected block: {1}", loggers: [slot?.Itemstack?.GetName() ?? "empty", blockSel?.Block?.Code?.Path?.ToString() ?? "null"]);
 
 
                 bool isListEmpty = (plantOn.Count == 0 || plantOn is null);
                 if (isListEmpty || plantOn.Any(block => block is BlockFarmland || block is null))
                 {
-                    if (byEntity.World.BlockAccessor.GetBlockEntity(blockSel.Position) is BlockEntityFarmland farmland) { farmland.TryPlant(plantAs, slot, byEntity, blockSel); handling = EnumHandling.PreventDefault; }
+                    if (blockSel.Block is BlockFarmland) { PAA_Plant(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling); }
                 }
                 if (!isListEmpty && plantOn.Any(block => (block is not null && block.Code.Path == byEntity.World.BlockAccessor.GetBlock(blockSel.Position).Code.Path)))
                 {
-                    //slightly modified vanilla .TryPlant code to not explicitly require a seed item or item cropbehavior or farmland block target
-                    BlockPos checkBlock = blockSel.Position.UpCopy();
-                    if (API.World.BlockAccessor.GetBlock(checkBlock) is not null && API.World.BlockAccessor.GetBlock(checkBlock).BlockMaterial == EnumBlockMaterial.Air)
-                    {
-                        API.World.BlockAccessor.SetBlock(plantAs.BlockId, checkBlock);
-                        if (plantAs.CropProps is not null)
-                        {
-                            CropBehavior[] cropBehaviors = plantAs.CropProps.Behaviors;
-                            for (int i = 0; i < cropBehaviors.Length; i++)
-                            {
-                                cropBehaviors[i].OnPlanted(API, slot, byEntity, blockSel);
-                            }
-                        }
-                        if (byEntity is EntityPlayer)
-                        {
-                            IPlayer player = byEntity.World.PlayerByUid(((EntityPlayer)byEntity).PlayerUID);
-                            byEntity.World.PlaySoundAt(new AssetLocation("game:sounds/block/plant"), checkBlock, 0.4375, player);
-                            if (player == null || player.WorldData?.CurrentGameMode != EnumGameMode.Creative)
-                            {
-                                slot.TakeOut(1);
-                                slot.MarkDirty();
-                            }
-                        }
-                        handling = EnumHandling.PreventDefault;
-                    }
+                    PAA_Plant(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling);
                 }
 
 
                 base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling);
+            }
+
+
+            /// <summary>
+            /// slightly modified vanilla .TryPlant code to not explicitly require a seed item or item cropbehavior or farmland block target
+            /// </summary>
+            private void PAA_Plant(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handHandling, ref EnumHandling handling)
+            {
+                if (plantAs is null || blockSel is null) { return; }
+
+                BlockPos checkBlock = blockSel.Position.UpCopy();
+                if (API.World.BlockAccessor.GetBlock(checkBlock) is not null && API.World.BlockAccessor.GetBlock(checkBlock).BlockMaterial == EnumBlockMaterial.Air)
+                {
+                    if (plantAs.CollisionBoxes is not null && plantAs.CollisionBoxes.Length != 0 && API.World.GetIntersectingEntities(checkBlock, plantAs.CollisionBoxes, (Entity e) => e.IsInteractable).Length != 0)
+                    {
+                        return;
+                    }
+                    API.World.BlockAccessor.SetBlock(plantAs.BlockId, checkBlock);
+                    if (plantAs.CropProps is not null)
+                    {
+                        CropBehavior[] cropBehaviors = plantAs.CropProps.Behaviors;
+                        for (int i = 0; i < cropBehaviors.Length; i++)
+                        {
+                            cropBehaviors[i].OnPlanted(API, slot, byEntity, blockSel);
+                        }
+                    }
+                    if (byEntity is EntityPlayer)
+                    {
+                        IPlayer player = byEntity.World.PlayerByUid(((EntityPlayer)byEntity).PlayerUID);
+                        byEntity.World.PlaySoundAt(new AssetLocation("game:sounds/block/plant"), checkBlock, 0.4375, player);
+                        if (player == null || player.WorldData?.CurrentGameMode != EnumGameMode.Creative)
+                        {
+                            slot.TakeOut(1);
+                            slot.MarkDirty();
+                        }
+                    }
+                    handling = EnumHandling.PreventDefault;
+                }
             }
         }
     }
