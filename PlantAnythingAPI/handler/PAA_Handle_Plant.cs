@@ -40,7 +40,7 @@ namespace PlantAnythingAPI.handler
         {
             //public ItemProps_Plantable itemProps { get; protected set; }
             public Behavior_Plantable(CollectibleObject collObj) : base(collObj) { }
-            private List<Block> plantOn = [];
+            private string[] plantOn = [];
             private Block? plantAs;
 
             public override void Initialize(JsonObject properties)
@@ -50,14 +50,18 @@ namespace PlantAnythingAPI.handler
                 {
                     if (properties["plantOn"].Exists)
                     {
+                        List<string> plantOnList = [];
                         foreach (var i in properties["plantOn"])
                         {
-                            plantOn.Add(API.World.GetBlock(new AssetLocation(i.ToString())));
+                            if (i is null) { continue; }
+                            plantOnList.Add(i.ToString());
                         }
+                        plantOn = [.. plantOnList];
                     }
+
                     plantAs = API.World.GetBlock(new AssetLocation(properties["plantAs"].ToString()));
-                    PAA_Function_General.Log_Debug_Verbose("found Behavior_Plantable on item; plantOn: list[{0}], plantAs: {1}", loggers: [plantOn?.Count ?? 0, plantAs?.Code.GetNameWithDomain() ?? "null"]);
                 }
+                PAA_Function_General.Log_Debug_Verbose("found Behavior_Plantable on item: {0}; plantOn: list[{1}], plantAs: {2}", loggers: [collObj.Code, plantOn?.Length ?? 0, plantAs?.Code.GetNameWithDomain() ?? "null"]);
                 base.Initialize(properties);
             }
 
@@ -65,21 +69,42 @@ namespace PlantAnythingAPI.handler
             {
                 if (plantAs is null || blockSel is null || slot is null) { return; }
                 if (byEntity is EntityPlayer && (byEntity.Controls.Sneak || byEntity.Controls.Sprint)) { return; } //bypass interaction when crouching to allow other ineraction systems
-                PAA_Function_General.Log_Debug_Verbose("ran with item: {0} on selected block: {1}", loggers: [slot?.Itemstack?.GetName() ?? "empty", blockSel?.Block?.Code?.Path?.ToString() ?? "null"]);
+                PAA_Function_General.Log_Debug_Verbose("ran with item: {0} on selected block: {1}", loggers: [slot?.Itemstack?.GetName() ?? "null", blockSel?.Block?.Code?.Path?.ToString() ?? "null"]);
 
 
-                bool isListEmpty = (plantOn.Count == 0 || plantOn is null);
-                if (isListEmpty || plantOn.Any(block => block is BlockFarmland || block is null))
-                {
-                    if (blockSel.Block is BlockFarmland) { PAA_Plant(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling); }
-                }
-                if (!isListEmpty && plantOn.Any(block => (block is not null && block.Code.Path == byEntity.World.BlockAccessor.GetBlock(blockSel.Position).Code.Path)))
+                bool isListEmpty = (plantOn is null || plantOn.Length < 1);
+                if (isListEmpty && blockSel.Block is BlockFarmland) { PAA_Plant(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling); }
+                if (!isListEmpty && PAA_Match_Wildcard(plantOn, blockSel.Block))
                 {
                     PAA_Plant(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling);
                 }
 
 
                 base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handHandling, ref handling);
+            }
+
+
+            /// <summary>
+            /// compares an array of strings of block codes to a single block's code. Strings do not require having a Code.Domain.
+            /// </summary>
+            /// <param name="wildcardCheck">array of strings of block codes to compare to the block.</param>
+            /// <param name="blockCheck">block whos code is being compared against</param>
+            /// <returns></returns>
+            private bool PAA_Match_Wildcard(string[] wildcardCheck, Block blockCheck)
+            {
+                if (wildcardCheck is null || wildcardCheck.Length < 1 || blockCheck is null) { return false; }
+                foreach (var i in wildcardCheck)
+                {
+                    string wildcardDomain = (i.IndexOf(':') > -1) ? i[.. (i.IndexOf(':'))] : blockCheck.Code.Domain;
+                    string wildcardCode = (i.IndexOf(':') > -1) ? i[(i.IndexOf(':') + 1) ..] : i;
+
+                    if (wildcardDomain == blockCheck.Code.Domain)
+                    {
+                        if (blockCheck.WildCardMatch(wildcardCode)) { return true; }
+                    }
+                }
+
+                return false;
             }
 
 
