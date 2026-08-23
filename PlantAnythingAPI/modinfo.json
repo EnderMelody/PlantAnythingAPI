@@ -7,7 +7,7 @@
         "EnderMelody"
     ],
     "description": "Impliments json behavior on items to allow any item to plant any block on any block",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "dependencies": {
         "game": "*"
     }
